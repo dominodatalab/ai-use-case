@@ -398,6 +398,19 @@ body {
   font-weight: 700;
 }
 
+/* Auto-filled highlight for assistant suggestions */
+.auto-filled {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  transition: background 1.6s ease;
+}
+
+label.auto-filled {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background 1.6s ease;
+}
+
 .message-line {
   display: flex;
   align-items: flex-start;

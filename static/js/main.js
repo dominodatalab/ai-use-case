@@ -661,8 +661,10 @@ async function handleAssistGovernance(event) {
         }
 
         const data = await resp.json();
-        if (data && data.suggestions) {
-            populateSuggestedFields(data.suggestions);
+        // Extract usable suggestions from nested gateway response
+        const suggestions = extractSuggestionsFromAssistResponse(data);
+        if (suggestions && Object.keys(suggestions).length > 0) {
+            populateSuggestedFields(suggestions);
             const successObj = { status: 'success', data: { message: 'Assistance applied' } };
             showSuccess(successObj);
         } else {
@@ -682,31 +684,186 @@ async function handleAssistGovernance(event) {
 function populateSuggestedFields(suggestions) {
     if (!suggestions) return;
 
-    Object.entries(suggestions).forEach(([label, value]) => {
-        if (value === null || value === undefined) return;
+    // Batch DOM lookups for performance: map data-label -> elements
+    const dynamicContainer = document.getElementById('dynamic-fields');
+    const allLabeled = Array.from(dynamicContainer.querySelectorAll('[data-label]'));
+    const labelMap = new Map();
+    const normMap = new Map();
+    const normalize = (s) => {
+        if (!s) return '';
+        return String(s).toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, ' ').trim();
+    };
+    allLabeled.forEach(el => {
+        const lbl = el.getAttribute('data-label');
+        if (!labelMap.has(lbl)) labelMap.set(lbl, []);
+        labelMap.get(lbl).push(el);
 
-        // Find inputs or textareas that have data-label equal to the label
-        const dynamicContainer = document.getElementById('dynamic-fields');
-        const selector = `[data-label]`;
-        const fields = Array.from(dynamicContainer.querySelectorAll(selector)).filter(el => el.getAttribute('data-label') === label);
-
-        if (fields.length > 0) {
-            fields.forEach(field => {
-                if (field.tagName.toLowerCase() === 'textarea' || field.type === 'text') {
-                    field.value = value;
-                    field.dispatchEvent(new Event('input'));
-                }
-            });
-        } else {
-            // If we couldn't find a field, try to match by label-like id
-            const idSafe = labelToFieldId(label);
-            const fallback = document.getElementById(idSafe);
-            if (fallback) {
-                fallback.value = value;
-                fallback.dispatchEvent(new Event('input'));
-            }
+        const n = normalize(lbl);
+        if (n) {
+            if (!normMap.has(n)) normMap.set(n, []);
+            normMap.get(n).push(el);
+            // also store underscore and hyphen variants
+            const u = n.replace(/\s+/g, '_');
+            const h = n.replace(/\s+/g, '-');
+            if (!normMap.has(u)) normMap.set(u, []);
+            normMap.get(u).push(el);
+            if (!normMap.has(h)) normMap.set(h, []);
+            normMap.get(h).push(el);
         }
     });
+
+    // Also build a radio lookup by data-label
+    const allRadios = Array.from(dynamicContainer.querySelectorAll('input[type="radio"][data-label]'));
+    const radioMap = new Map();
+    allRadios.forEach(r => {
+        const lbl = r.getAttribute('data-label');
+        if (!radioMap.has(lbl)) radioMap.set(lbl, []);
+        radioMap.get(lbl).push(r);
+    });
+
+    // Apply suggestions
+    const entries = Object.entries(suggestions);
+    // Use requestAnimationFrame to allow UI to remain responsive on large updates
+    window.requestAnimationFrame(() => {
+        entries.forEach(([label, value]) => {
+            if (value === null || value === undefined) return;
+
+            const fields = labelMap.get(label) || [];
+            if (fields.length > 0) {
+                fields.forEach(field => {
+                    const tag = field.tagName.toLowerCase();
+                    // only auto-fill if field is empty to avoid overwriting user input
+                    const isEmpty = (field.value || '').toString().trim() === '';
+                    if ((tag === 'textarea' || (tag === 'input' && field.type === 'text')) && isEmpty) {
+                        field.value = value;
+                        field.dispatchEvent(new Event('input'));
+                        field.classList.add('auto-filled');
+                        setTimeout(() => field.classList.remove('auto-filled'), 2000);
+                    }
+                });
+            } else {
+                // try normalized lookup
+                const nlabel = normalize(label);
+                const nfields = normMap.get(nlabel) || normMap.get(nlabel.replace(/\s+/g, '_')) || normMap.get(nlabel.replace(/\s+/g, '-')) || [];
+                if (nfields.length > 0) {
+                    nfields.forEach(field => {
+                        const tag = field.tagName.toLowerCase();
+                        const isEmpty = (field.value || '').toString().trim() === '';
+                        if ((tag === 'textarea' || (tag === 'input' && field.type === 'text')) && isEmpty) {
+                            field.value = value;
+                            field.dispatchEvent(new Event('input'));
+                            field.classList.add('auto-filled');
+                            setTimeout(() => field.classList.remove('auto-filled'), 2000);
+                        }
+                    });
+                }
+            }
+
+            // Handle radio groups: select the option that matches the suggested value
+            if (radioMap.has(label)) {
+                const radios = radioMap.get(label);
+                // Only set radio if none in the group is already checked
+                const anyChecked = radios.some(r => r.checked);
+                if (!anyChecked) {
+                    radios.forEach(r => {
+                        try {
+                            if (String(r.value).toLowerCase() === String(value).toLowerCase()) {
+                                r.checked = true;
+                                r.dispatchEvent(new Event('change'));
+                                // highlight the label containing this radio
+                                const parentLabel = r.closest('label');
+                                if (parentLabel) {
+                                    parentLabel.classList.add('auto-filled');
+                                    setTimeout(() => parentLabel.classList.remove('auto-filled'), 2000);
+                                }
+                            }
+                        } catch (e) {
+                            // ignore
+                        }
+                    });
+                }
+            }
+
+            // Fallback: try to find element by a sanitized id
+            if ((!fields || fields.length === 0) && !radioMap.has(label)) {
+                const idSafe = labelToFieldId(label);
+                const fallback = document.getElementById(idSafe);
+                if (fallback) {
+                    fallback.value = value;
+                    fallback.dispatchEvent(new Event('input'));
+                }
+            }
+        });
+    });
+}
+
+
+// Extract suggestions from the assist API response, handling nested structures and code fences
+function extractSuggestionsFromAssistResponse(data) {
+    if (!data) return {};
+
+    // If the backend already returned a suggestions object mapping labels -> values, use it
+    if (data.suggestions && typeof data.suggestions === 'object' && !Array.isArray(data.suggestions)) {
+        // Detect if it's the full gateway response (with choices)
+        if (data.suggestions.choices && Array.isArray(data.suggestions.choices)) {
+            // fall through to parsing choices
+        } else {
+            return data.suggestions;
+        }
+    }
+
+    // Handle gateway-like response where suggestions contain choices
+    let contentStr = '';
+    try {
+        if (data.suggestions && data.suggestions.choices && Array.isArray(data.suggestions.choices) && data.suggestions.choices.length > 0) {
+            const choice = data.suggestions.choices[0];
+            if (choice.message && choice.message.content) {
+                contentStr = choice.message.content;
+            } else if (choice.text) {
+                contentStr = choice.text;
+            } else if (choice.output) {
+                contentStr = JSON.stringify(choice.output);
+            }
+        } else if (data.choices && Array.isArray(data.choices) && data.choices.length > 0) {
+            const choice = data.choices[0];
+            if (choice.message && choice.message.content) contentStr = choice.message.content;
+            else if (choice.text) contentStr = choice.text;
+            else contentStr = JSON.stringify(choice);
+        } else if (data.suggestions && typeof data.suggestions === 'string') {
+            contentStr = data.suggestions;
+        } else if (typeof data === 'string') {
+            contentStr = data;
+        } else if (data.suggestions && typeof data.suggestions === 'object') {
+            // maybe already contains mapping
+            return data.suggestions;
+        }
+    } catch (e) {
+        console.error('Error extracting content from assist response', e);
+        return {};
+    }
+
+    if (!contentStr) return {};
+
+    // Strip markdown code fences if present
+    const fenceMatch = contentStr.match(/```(?:json)?\n([\s\S]*?)\n```/i);
+    let jsonText = fenceMatch ? fenceMatch[1] : contentStr;
+
+    // Try to locate the first JSON object in the text
+    const objMatch = jsonText.match(/\{[\s\S]*\}/);
+    if (objMatch) {
+        jsonText = objMatch[0];
+    }
+
+    try {
+        const parsed = JSON.parse(jsonText);
+        // If parsed contains nested choices structure, drill down
+        if (parsed.suggestions && typeof parsed.suggestions === 'object') return parsed.suggestions;
+        return parsed;
+    } catch (e) {
+        // Not JSON parseable
+        console.warn('Assist response JSON parse failed:', e.message);
+        return {};
+    }
 }
 
 // Initialize form
