@@ -3,7 +3,7 @@ const DOMINO_API_BASE = window.location.origin + window.location.pathname.replac
 const ORIGINAL_API_BASE = window.DOMINO?.API_BASE || '';
 const API_KEY = window.DOMINO?.API_KEY || null;
 // Local AI icon to avoid loading from an unreliable CDN
-const AI_ICON_URL = '/static/img/ai.png';
+const AI_ICON_URL = '/static/img/file.svg';
 
 // Hardcoded policy IDs
 const POLICY_IDS = {
