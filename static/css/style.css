@@ -455,6 +455,54 @@ label.auto-filled {
 }
 .ai-badge img { width: 16px; height: 16px; display: block; }
 
+/* Field state while AI is generating suggestions */
+
+.ai-thinking {
+  opacity: 0.95;
+  font-style: italic;
+  color: var(--muted);
+  cursor: progress;
+  transition: opacity 0.18s ease, color 0.18s ease, background-color 0.18s ease;
+}
+
+/* Dim and disable interactive controls inside the dynamic fields container while AI is running */
+/* container marker while AI is running — individual controls are styled/disabled */
+/* visually dim inputs that are readonly/disabled during autofill */
+.dynamic-ai-disabled input[disabled],
+.dynamic-ai-disabled input[aria-disabled="true"],
+.dynamic-ai-disabled input[readonly],
+.dynamic-ai-disabled textarea[readonly] {
+  opacity: 0.7;
+}
+.dynamic-ai-disabled input[type="radio"] {
+  opacity: 0.6;
+}
+
+/* Tooltip for labels while autofill in progress */
+[data-ai-tooltip] {
+  position: relative;
+}
+[data-ai-tooltip]::after {
+  content: attr(data-ai-tooltip);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) translateY(calc(-100% - 8px));
+  white-space: nowrap;
+  background: rgba(25, 25, 25, 0.9);
+  color: white;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 60;
+}
+[data-ai-tooltip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(calc(-100% - 12px));
+}
+
 .message-line {
   display: flex;
   align-items: flex-start;

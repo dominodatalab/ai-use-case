@@ -695,6 +695,48 @@ async function handleAssistGovernance(event) {
     const originalText = assistButton.innerHTML;
     assistButton.innerHTML = '<span class="spinner"></span> Assisting...';
 
+    // Prepare dynamic fields: text inputs/textarea show animated ellipsis; radios are disabled
+    const dynamicContainer = document.getElementById('dynamic-fields');
+    const animFields = dynamicContainer ? Array.from(dynamicContainer.querySelectorAll('input[type="text"], textarea')) : [];
+    const radioInputs = dynamicContainer ? Array.from(dynamicContainer.querySelectorAll('input[type="radio"]')) : [];
+    const ellipsisStates = ['.', '..', '...'];
+    let ellIdx = 0;
+    const savedValues = new Map();
+    const savedRadioDisabled = new Map();
+    // Put text fields into readonly and start animation
+    animFields.forEach(f => {
+        savedValues.set(f, f.value);
+        f.setAttribute('data-ai-orig-value', f.value || '');
+        try { f.readOnly = true; } catch (e) {}
+        f.classList.add('ai-thinking');
+        f.value = ellipsisStates[ellIdx];
+    });
+    // Disable radios, add tooltip on their labels, and mark container for dimming
+    radioInputs.forEach(r => {
+        savedRadioDisabled.set(r, r.disabled);
+        try { r.disabled = true; } catch (e) {}
+        try {
+            const lbl = r.closest('label') || (() => {
+                // try to find a label referencing this input
+                if (r.id) return document.querySelector(`label[for="${r.id}"]`);
+                return null;
+            })();
+            if (lbl) {
+                lbl.setAttribute('data-ai-tooltip', 'Autofill in progress');
+                lbl.setAttribute('title', 'Autofill in progress');
+                lbl.classList.add('ai-tooltip-target');
+            }
+        } catch (e) {}
+    });
+    if (dynamicContainer) dynamicContainer.classList.add('dynamic-ai-disabled');
+
+    const ellipsisInterval = setInterval(() => {
+        ellIdx = (ellIdx + 1) % ellipsisStates.length;
+        animFields.forEach(f => {
+            try { f.value = ellipsisStates[ellIdx]; } catch (e) {}
+        });
+    }, 450);
+
     try {
         const formData = new FormData();
         formData.append('policyName', appState.selectedPolicy);
@@ -726,16 +768,58 @@ async function handleAssistGovernance(event) {
         const data = await resp.json();
         // Extract usable suggestions from nested gateway response
         const suggestions = extractSuggestionsFromAssistResponse(data);
+
+        // Stop animation and restore editability before applying suggestions
+        clearInterval(ellipsisInterval);
+        animFields.forEach(f => {
+            f.classList.remove('ai-thinking');
+            try { f.readOnly = false; } catch (e) {}
+        });
+        radioInputs.forEach(r => {
+            try { r.disabled = savedRadioDisabled.has(r) ? savedRadioDisabled.get(r) : false; } catch (e) {}
+            try {
+                const lbl = r.closest('label') || (r.id ? document.querySelector(`label[for="${r.id}"]`) : null);
+                if (lbl) {
+                    lbl.removeAttribute('data-ai-tooltip');
+                    lbl.removeAttribute('title');
+                    lbl.classList.remove('ai-tooltip-target');
+                }
+            } catch (e) {}
+        });
+        if (dynamicContainer) dynamicContainer.classList.remove('dynamic-ai-disabled');
+
         if (suggestions && Object.keys(suggestions).length > 0) {
             populateSuggestedFields(suggestions);
-            const successObj = { status: 'success', data: { message: 'Assistance applied' } };
-            showSuccess(successObj);
+            // Do NOT show registration success here — only show when user actually submits registration
         } else {
+            // restore previous values if assistant returned nothing useful
+            animFields.forEach(f => {
+                if (savedValues.has(f)) f.value = savedValues.get(f) || '';
+            });
             showErrors(['No suggestions returned from assistant']);
         }
 
     } catch (err) {
         console.error('Assist error', err);
+        // stop animation and restore values + radios
+        clearInterval(ellipsisInterval);
+        animFields.forEach(f => {
+            try { f.readOnly = false; } catch (e) {}
+            if (savedValues.has(f)) f.value = savedValues.get(f) || '';
+            f.classList.remove('ai-thinking');
+        });
+        radioInputs.forEach(r => {
+            try { r.disabled = savedRadioDisabled.has(r) ? savedRadioDisabled.get(r) : false; } catch (e) {}
+            try {
+                const lbl = r.closest('label') || (r.id ? document.querySelector(`label[for="${r.id}"]`) : null);
+                if (lbl) {
+                    lbl.removeAttribute('data-ai-tooltip');
+                    lbl.removeAttribute('title');
+                    lbl.classList.remove('ai-tooltip-target');
+                }
+            } catch (e) {}
+        });
+        if (dynamicContainer) dynamicContainer.classList.remove('dynamic-ai-disabled');
         showErrors([`Assist failed: ${err.message}`]);
     } finally {
         assistButton.disabled = false;
