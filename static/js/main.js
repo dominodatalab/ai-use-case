@@ -2,8 +2,15 @@
 const DOMINO_API_BASE = window.location.origin + window.location.pathname.replace(/\/$/, '');
 const ORIGINAL_API_BASE = window.DOMINO?.API_BASE || '';
 const API_KEY = window.DOMINO?.API_KEY || null;
-// Local AI icon to avoid loading from an unreliable CDN
-const AI_ICON_URL = '/static/img/file.svg';
+// Inline sparkles/star SVG (Heroicons-style) as a data URI for reliable badges
+const AI_ICON_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3l1.5 3 3.5.5-2.5 2 0.6 3.4L12 11l-3.1 1.9.6-3.4-2.5-2L10.5 6 12 3z" fill="#F59E0B" stroke="none"/>
+    <path d="M5 20l1 2 2 .3-1.4 1.1L7 25l-1 1-0.6-1.6L4 24l1-1z" fill="#FBBF24" stroke="none"/>
+    <path d="M18 13l.8 1.6 1.8.3-1.2 1 .3 1.8L18 18l-1.7 1 .3-1.8-1.2-1L16.2 14 18 13z" fill="#FBBF24" stroke="none"/>
+</svg>
+`;
+const AI_ICON_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(AI_ICON_SVG);
 
 // Hardcoded policy IDs
 const POLICY_IDS = {
