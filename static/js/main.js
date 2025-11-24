@@ -2,8 +2,14 @@
 const DOMINO_API_BASE = window.location.origin + window.location.pathname.replace(/\/$/, '');
 const ORIGINAL_API_BASE = window.DOMINO?.API_BASE || '';
 const API_KEY = window.DOMINO?.API_KEY || null;
-// Local AI icon to avoid loading from an unreliable CDN
-const AI_ICON_URL = '/static/img/ai-icon.svg';
+// Inline SVG data URI for AI icon to avoid network/proxy issues
+const AI_ICON_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+    <rect rx="8" width="64" height="64" fill="#4F46E5"/>
+    <text x="50%" y="52%" font-size="28" fill="#ffffff" text-anchor="middle" dominant-baseline="middle" font-family="Arial, Helvetica, sans-serif">AI</text>
+</svg>
+`;
+const AI_ICON_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(AI_ICON_SVG);
 
 // Hardcoded policy IDs
 const POLICY_IDS = {
