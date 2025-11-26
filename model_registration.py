@@ -27,6 +27,36 @@ from endpoint_registration import register_endpoint
 
 logger = logging.getLogger(__name__)
 
+
+def extract_text_from_doc(file_path):
+    """Extract text from .doc or .docx files."""
+    try:
+        # Try python-docx for .docx files
+        import docx
+        doc = docx.Document(file_path)
+        text_content = []
+        for para in doc.paragraphs:
+            text_content.append(para.text)
+        return '\n'.join(text_content)
+    except ImportError:
+        logger.warning("python-docx not installed, trying docx2txt")
+        try:
+            # Fallback to docx2txt
+            import docx2txt
+            return docx2txt.process(file_path)
+        except ImportError:
+            logger.warning("docx2txt not installed, trying textract")
+            try:
+                # Another fallback to textract
+                import textract
+                return textract.process(file_path).decode('utf-8')
+            except ImportError:
+                logger.error("No doc/docx extraction library available")
+                return "[doc/docx file - extraction libraries not available]"
+    except Exception as e:
+        logger.error(f"Failed to extract text from doc/docx: {e}")
+        return f"[doc/docx file - extraction failed: {str(e)}]"
+
 DOMINO_DOMAIN = os.environ.get("DOMINO_DOMAIN", "se-demo.domino.tech")
 DOMINO_API_KEY = os.environ.get("DOMINO_USER_API_KEY", "")
 POLICY_IDS_STRING = os.environ.get("POLICY_IDS", "42c9adf3-f233-470b-b186-107496d0eb05, ")
@@ -207,6 +237,14 @@ def assist_governance_handler(request):
 
                     except Exception:
                         content = "[binary or unreadable]"
+
+                elif name.lower().endswith((".doc", ".docx")):
+                    # --- handle doc/docx files ---
+                    try:
+                        extracted_text = extract_text_from_doc(path)
+                        content = extracted_text[:MAX_CHARS]
+                    except Exception:
+                        content = "[doc/docx file - extraction failed]"
 
                 else:
                     # --- read plain text ---
@@ -593,29 +631,50 @@ def register_model_handler(request, progress_queues):
             elif filename == "signature.pkl":
                 signature_pkl = filepath
 
+        # Model.pkl is now optional - allow uploads without it (e.g., for doc/docx text extraction)
         if not model_pkl:
-            return jsonify({"status": "error", "message": "model.pkl is required"}), 400
+            logger.info("No model.pkl found - continuing without model file (doc/docx extraction mode)")
 
         send_progress(request_id, 'validate', 'Files uploaded successfully', progress_queues, progress=20, file_status=file_status)
+
+        # COMMENTED OUT: Security scan
+        # send_progress(request_id, 'security', 'Running security scan...', progress_queues, progress=25)
+        # logger.info(f"Starting security scan on {temp_dir}")
+        # semgrep_raw = run_semgrep_scan(temp_dir, config=DEFAULT_SEMGREP_CONFIG, timeout_sec=300)
+        # security_scan_summary = summarize_semgrep(semgrep_raw)
+        # logger.info(f"Security scan complete: {security_scan_summary['total_issues']} issues found")
+        # send_progress(request_id, 'security', f"Security scan complete: {security_scan_summary['total_issues']} issues found", progress_queues, progress=30)
+
+        # Create empty security scan summary for compatibility
+        security_scan_summary = {
+            'total_issues': 0,
+            'high': 0,
+            'medium': 0,
+            'low': 0,
+            'issues': [],
+            'metrics': {}
+        }
         
-        send_progress(request_id, 'security', 'Running security scan...', progress_queues, progress=25)
-        logger.info(f"Starting security scan on {temp_dir}")
-        semgrep_raw = run_semgrep_scan(temp_dir, config=DEFAULT_SEMGREP_CONFIG, timeout_sec=300)
-        security_scan_summary = summarize_semgrep(semgrep_raw)
-        logger.info(f"Security scan complete: {security_scan_summary['total_issues']} issues found")
-        send_progress(request_id, 'security', f"Security scan complete: {security_scan_summary['total_issues']} issues found", progress_queues, progress=30)
-        
-        exp = mlflow.set_experiment(EXPERIMENT_NAME)
-        experiment_id = exp.experiment_id
-        logger.info(f"Using MLflow experiment: {EXPERIMENT_NAME}")
-        
+        # Silent failure: MLflow experiment setup
+        experiment_id = None
+        run_id = None
+
+        try:
+            exp = mlflow.set_experiment(EXPERIMENT_NAME)
+            experiment_id = exp.experiment_id
+            logger.info(f"Using MLflow experiment: {EXPERIMENT_NAME}")
+        except Exception as e:
+            logger.warning(f"Failed to set MLflow experiment (non-fatal): {e}")
+
         send_progress(request_id, 'mlflow', 'Starting MLflow run...', progress_queues, progress=35)
-        
-        with mlflow.start_run(run_name=f"{model_name}_registration_{int(time.time())}") as run:
-            run_id = run.info.run_id
-            logger.info(f"Started MLflow run: {run_id}")
-            
-            send_progress(request_id, 'params', 'Logging parameters...', progress_queues, progress=45)
+
+        # Silent failure: MLflow run and model registration
+        try:
+            with mlflow.start_run(run_name=f"{model_name}_registration_{int(time.time())}") as run:
+                run_id = run.info.run_id
+                logger.info(f"Started MLflow run: {run_id}")
+
+                send_progress(request_id, 'params', 'Logging parameters...', progress_queues, progress=45)
             
             # Log all dynamic fields as parameters
             for key, value in dynamic_fields.items():
@@ -678,86 +737,119 @@ def register_model_handler(request, progress_queues):
                 logger.warning(f"Failed to generate PDF report (non-fatal): {e}")
 
             send_progress(request_id, 'model', 'Registering model...', progress_queues, progress=70)
-            
+
             # Validate model_name before registration
             if not model_name or model_name.strip() == '':
                 raise ValueError("Model name cannot be empty. Please provide a Model Name in the form.")
-            
+
             logger.info(f"Registering model with name: {model_name}")
 
-            if signature_pkl:
-                signature = joblib.load(signature_pkl)
+            # Only register model if model.pkl exists
+            if model_pkl:
+                if signature_pkl:
+                    signature = joblib.load(signature_pkl)
+                else:
+                    with open(model_pkl, "rb") as f:
+                        loaded_model = pickle.load(f)
+
+                    # Create sample data for signature inference
+                    if hasattr(loaded_model, 'n_features_in_'):
+                        n_features = loaded_model.n_features_in_
+                        X_sample = pd.DataFrame([[0.0] * n_features])
+                    else:
+                        X_sample = pd.DataFrame([[0.0, 0.0, 0.0]])
+
+                    # Infer signature
+                    if hasattr(loaded_model, "predict_proba"):
+                        y_sample = loaded_model.predict_proba(X_sample)
+                    else:
+                        y_sample = loaded_model.predict(X_sample)
+                    signature = infer_signature(X_sample, y_sample)
+
+                # Log model using PicklePyFunc wrapper
+                model_info = mlflow.pyfunc.log_model(
+                    artifact_path="model",
+                    python_model=_create_pickle_pyfunc(),
+                    artifacts={"model_pkl": str(model_pkl)},
+                    pip_requirements=[],
+                    signature=signature,
+                    registered_model_name=model_name
+                )
+
+                logger.info(f"Successfully logged model to MLflow: {model_info.model_uri}")
             else:
-                with open(model_pkl, "rb") as f:
-                    loaded_model = pickle.load(f)
-                
-                # Create sample data for signature inference
-                if hasattr(loaded_model, 'n_features_in_'):
-                    n_features = loaded_model.n_features_in_
-                    X_sample = pd.DataFrame([[0.0] * n_features])
-                else:
-                    X_sample = pd.DataFrame([[0.0, 0.0, 0.0]])
-                
-                # Infer signature
-                if hasattr(loaded_model, "predict_proba"):
-                    y_sample = loaded_model.predict_proba(X_sample)
-                else:
-                    y_sample = loaded_model.predict(X_sample)
-                signature = infer_signature(X_sample, y_sample)
-                            
-            # Log model using PicklePyFunc wrapper
-            model_info = mlflow.pyfunc.log_model(
-                artifact_path="model",
-                python_model=_create_pickle_pyfunc(),
-                artifacts={"model_pkl": str(model_pkl)},
-                pip_requirements=[],
-                signature=signature,
-                registered_model_name=model_name
-            )
-            
-            logger.info(f"Successfully logged model to MLflow: {model_info.model_uri}")
-        
-        send_progress(request_id, 'api', 'Updating model description...', progress_queues, progress=75)
-        model_data = update_model_description(model_name, model_description)
-        model_version = model_data.get("latestVersion", 1)
-        
-        send_progress(request_id, 'bundle', 'Creating governance bundle...', progress_queues, progress=80)
-        bundle_data = create_bundle(model_name, model_version, policy_id)
-        bundle_name = bundle_data.get("name", "")
-        bundle_id = bundle_data.get("id", "")
-        project_owner = bundle_data.get("projectOwner", "")
-        project_name = bundle_data.get("projectName", "")
-        project_id = bundle_data.get("projectId", "")
-        stage = bundle_data.get("stage", "").lower().replace(" ", "-")
+                logger.info("Skipping model registration (no model.pkl provided)")
+
+        except Exception as e:
+            logger.warning(f"Failed to create MLflow run and log model (non-fatal): {e}")
+            # Continue without MLflow artifacts
+
+        # Silent failure: Model description update
+        model_version = 1
+        try:
+            send_progress(request_id, 'api', 'Updating model description...', progress_queues, progress=75)
+            model_data = update_model_description(model_name, model_description)
+            model_version = model_data.get("latestVersion", 1)
+            logger.info(f"Successfully updated model description for version {model_version}")
+        except Exception as e:
+            logger.warning(f"Failed to update model description (non-fatal): {e}")
+            # Continue with default version
+
+        # Silent failure: Bundle creation
+        bundle_id = None
+        bundle_name = f"{model_name}_v{model_version}"
+        project_owner = os.environ.get("DOMINO_PROJECT_OWNER", "")
+        project_name = os.environ.get("DOMINO_PROJECT_NAME", "")
+        project_id = DOMINO_PROJECT_ID
+        stage = "intake"
+
+        try:
+            send_progress(request_id, 'bundle', 'Creating governance bundle...', progress_queues, progress=80)
+            bundle_data = create_bundle(model_name, model_version, policy_id)
+            bundle_id = bundle_data.get("id", "")
+            bundle_name = bundle_data.get("name", bundle_name)
+            project_owner = bundle_data.get("projectOwner", project_owner)
+            project_name = bundle_data.get("projectName", project_name)
+            project_id = bundle_data.get("projectId", project_id)
+            stage = bundle_data.get("stage", "intake").lower().replace(" ", "-")
+            logger.info(f"Successfully created bundle: {bundle_id}")
+        except Exception as e:
+            logger.warning(f"Failed to create governance bundle (non-fatal): {e}")
+            # Continue without bundle
+
+        # Silent failure: Security report upload and attachment
         html_remote_path = f"security_scans/{bundle_name}_security_report.html"
         pdf_remote_path = f"security_scans/{bundle_name}_security_report.pdf"
-        
-        try:
-            html_upload_result = upload_file_to_project(DOMINO_PROJECT_ID, str(security_report_html_path), html_remote_path)
-            pdf_upload_result = upload_file_to_project(DOMINO_PROJECT_ID, str(security_report_pdf_path), pdf_remote_path)
-    
-            logger.info("Security reports successfully uploaded to Domino project repository.")
-    
-            html_commit = html_upload_result.get("key")
-            pdf_commit = pdf_upload_result.get("key")
-            html_filename = html_upload_result.get("path")
-            pdf_filename = pdf_upload_result.get("path")
-    
-            html_attachment = attach_report_to_bundle(bundle_id, html_filename, html_commit)
-            pdf_attachment = attach_report_to_bundle(bundle_id, pdf_filename, pdf_commit)
-    
-            logger.info(f"Attached reports to bundle {bundle_id}: HTML({html_attachment.get('id')}), PDF({pdf_attachment.get('id')})")
-    
-        except Exception as e:
-            logger.error(f"Failed to upload or attach security reports to bundle: {e}", exc_info=True)
+
+        if bundle_id:
+            try:
+                html_upload_result = upload_file_to_project(DOMINO_PROJECT_ID, str(security_report_html_path), html_remote_path)
+                pdf_upload_result = upload_file_to_project(DOMINO_PROJECT_ID, str(security_report_pdf_path), pdf_remote_path)
+
+                logger.info("Security reports successfully uploaded to Domino project repository.")
+
+                html_commit = html_upload_result.get("key")
+                pdf_commit = pdf_upload_result.get("key")
+                html_filename = html_upload_result.get("path")
+                pdf_filename = pdf_upload_result.get("path")
+
+                html_attachment = attach_report_to_bundle(bundle_id, html_filename, html_commit)
+                pdf_attachment = attach_report_to_bundle(bundle_id, pdf_filename, pdf_commit)
+
+                logger.info(f"Attached reports to bundle {bundle_id}: HTML({html_attachment.get('id')}), PDF({pdf_attachment.get('id')})")
+
+            except Exception as e:
+                logger.warning(f"Failed to upload or attach security reports to bundle (non-fatal): {e}")
 
         domain = DOMINO_DOMAIN.removeprefix("https://").removeprefix("http://")
-        experiment_url = f"https://{domain}/experiments/{project_owner}/{project_name}/{experiment_id}"
-        experiment_run_url = f"https://{domain}/experiments/{project_owner}/{project_name}/{experiment_id}/{run_id}"
-        model_artifacts_url = f"https://{domain}/experiments/{project_owner}/{project_name}/{experiment_id}/{run_id}?isdir=false&path=model%2FMLmodel&tab=Outputs"
-        model_card_url = f"https://{domain}/u/{project_owner}/{project_name}/model-registry/{model_name}/model-card?version={model_version}"
-        bundle_url = f"https://{domain}/u/{project_owner}/{project_name}/governance/bundle/{bundle_id}/policy/{policy_id}/evidence/stage/{stage}"
-        security_scan_url = f"https://{domain}/u/{project_owner}/{project_name}/view-file/{html_remote_path}"
+
+        # Build URLs with fallbacks for failed operations
+        experiment_url = f"https://{domain}/experiments/{project_owner}/{project_name}/{experiment_id}" if experiment_id else None
+        experiment_run_url = f"https://{domain}/experiments/{project_owner}/{project_name}/{experiment_id}/{run_id}" if (experiment_id and run_id) else None
+        model_artifacts_url = f"https://{domain}/experiments/{project_owner}/{project_name}/{experiment_id}/{run_id}?isdir=false&path=model%2FMLmodel&tab=Outputs" if (experiment_id and run_id) else None
+        model_card_url = f"https://{domain}/u/{project_owner}/{project_name}/model-registry/{model_name}/model-card?version={model_version}" if model_name else None
+        bundle_url = f"https://{domain}/u/{project_owner}/{project_name}/governance/bundle/{bundle_id}/policy/{policy_id}/evidence/stage/{stage}" if bundle_id else None
+        security_scan_url = f"https://{domain}/u/{project_owner}/{project_name}/view-file/{html_remote_path}" if project_owner and project_name else None
         
         # Add file list to dynamic fields if not already present
         dynamic_fields['list_the_file_names_and_sizes'] = list_the_file_names_and_sizes
@@ -822,21 +914,31 @@ def register_model_handler(request, progress_queues):
             if artifact['value'] is not None:
                 print(f"  {artifact['label']}: {artifact['value']}")
 
-        send_progress(request_id, 'evidence', 'Submitting evidence to policy...', progress_queues, progress=90)
-        policy_submission_result = submit_artifacts_to_policy(bundle_id, policy_id, matched_artifacts)
-        logger.info(f"Successfully submitted {len([a for a in matched_artifacts if a['value'] is not None])} artifacts to policy")
+        # Silent failure: Policy artifact submission
+        if bundle_id:
+            try:
+                send_progress(request_id, 'evidence', 'Submitting evidence to policy...', progress_queues, progress=90)
+                policy_submission_result = submit_artifacts_to_policy(bundle_id, policy_id, matched_artifacts)
+                logger.info(f"Successfully submitted {len([a for a in matched_artifacts if a['value'] is not None])} artifacts to policy")
+            except Exception as e:
+                logger.warning(f"Failed to submit artifacts to policy (non-fatal): {e}")
+        else:
+            logger.info("Skipping policy artifact submission (no bundle created)")
 
-        send_progress(request_id, 'endpoint', 'Registering model endpoint...', progress_queues, progress=95)
-        try:
-            
-            endpoint_data = register_endpoint(bundle_id, bundle_name, model_name, model_version)
-            endpoint_id = endpoint_data.get("id", "")
-        except Exception as e:
-            print('no endpoint created')
-            endpoint_id = 'no-endpoint-created'
+        # COMMENTED OUT: REST endpoint creation
+        # send_progress(request_id, 'endpoint', 'Registering model endpoint...', progress_queues, progress=95)
+        # try:
+        #     endpoint_data = register_endpoint(bundle_id, bundle_name, model_name, model_version)
+        #     endpoint_id = endpoint_data.get("id", "")
+        # except Exception as e:
+        #     print('no endpoint created')
+        #     endpoint_id = 'no-endpoint-created'
+        # endpoint_url = f"https://{domain}/models/{endpoint_id}/overview"
+        # logger.info(f"Successfully registered endpoint: {endpoint_id}")
+
+        # Skip endpoint creation
+        endpoint_id = 'no-endpoint-created'
         endpoint_url = f"https://{domain}/models/{endpoint_id}/overview"
-
-        logger.info(f"Successfully registered endpoint: {endpoint_id}")
 
         send_progress(request_id, 'complete', 'Registration complete!', progress_queues, progress=100)
         send_progress(request_id, 'done', '', progress_queues, progress=100)

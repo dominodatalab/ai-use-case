@@ -1093,10 +1093,10 @@ function initializeForm() {
                         </div>
                         
                         <div class="form-group">
-                            <label for="model-upload">Upload Model Folder <span class="required">*</span></label>
+                            <label for="model-upload">Upload Files or Folder <span class="required">*</span></label>
                             <input type="file" id="model-upload" webkitdirectory directory multiple required style="display: none;">
                             <button type="button" class="btn btn-upload" onclick="document.getElementById('model-upload').click()">Choose Files</button>
-                            <p class="help-text">Upload a folder containing model.pkl, requirements.txt, metadata.json, and inference.py</p>
+                            <p class="help-text">Upload files including .doc, .docx, .pkl, .txt, .json, .py, etc. Model.pkl is optional.</p>
                         </div>
                         
                         <div id="uploaded-files-display" class="files-display">
