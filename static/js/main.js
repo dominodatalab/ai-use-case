@@ -14,8 +14,9 @@ const AI_ICON_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(AI_ICON_SVG)
 
 // Hardcoded policy IDs
 const POLICY_IDS = {
+    'AI Use Case Intake': '4a8da911-bb6b-480d-a5a9-9918550c741e',
     'External Model Upload': '42c9adf3-f233-470b-b186-107496d0eb05',
-    'AI Use Case Intake': '4a8da911-bb6b-480d-a5a9-9918550c741e'  // Using same ID for now, replace with actual second policy ID
+    'Internal Model Intake': '5f913214-e0ec-4fae-9f78-930a9bd918b4',
 };
 
 // Global state

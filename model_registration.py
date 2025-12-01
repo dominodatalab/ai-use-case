@@ -30,11 +30,8 @@ logger = logging.getLogger(__name__)
 
 DOMINO_DOMAIN = os.environ.get("DOMINO_DOMAIN", "se-demo.domino.tech")
 DOMINO_API_KEY = os.environ.get("DOMINO_USER_API_KEY", "")
-POLICY_IDS_STRING = os.environ.get("POLICY_IDS", "42c9adf3-f233-470b-b186-107496d0eb05, ")
-POLICY_IDS_LIST = [s.strip() for s in POLICY_IDS_STRING.split(',')]
 DOMINO_PROJECT_ID = os.environ.get("DOMINO_PROJECT_ID", "")
 
-print('POLICY_IDS_LIST', POLICY_IDS_LIST)
 
 def domino_short_id(length: int = 8) -> str:
     """Generate a short ID based on Domino user and project."""
@@ -330,7 +327,8 @@ def assist_governance_handler(request):
             suggestions_str = json.dumps(suggestions_raw)
         else:
             suggestions_str = str(suggestions_raw)
-
+        print('9'*80)
+        print(suggestions_str)
         # -----------------------------
         # PARSE JSON SAFELY
         # -----------------------------
@@ -391,11 +389,12 @@ def update_model_description(model_name: str, description: str) -> dict:
 
 
 def normalize_label(label: str) -> str:
-    """Transform label to match evidence variable names."""
-    normalized = label.lower()
-    normalized = re.sub(r'[^\w\s]', '', normalized)
-    normalized = re.sub(r'\s+', '_', normalized)
-    return normalized
+    x = label.lower().strip()
+    x = re.sub(r"\(\s*\d+\s*[-–]\s*\d+\s*\)", "", x)
+    x = re.sub(r"[^\w\s-]", "", x)
+    x = re.sub(r"\s+", "_", x)
+
+    return x
 
 
 def get_policy_details(policy_id: str) -> dict:
@@ -639,16 +638,21 @@ def register_model_handler(request, progress_queues):
                         if unique_key not in seen_keys:
                             seen_keys.add(unique_key)
                             # Try to find matching value in dynamic fields
-                            normalized_key = label.lower().replace(' ', '_').replace('?', '').replace(',', '').replace("'", '')
-                            normalized_key_hyphen = normalized_key.replace('_', '-')
-                            value = None
+                            # normalized_key = label.lower().replace(' ', '_').replace('?', '').replace(',', '').replace("'", '')
+                            # normalized_key_hyphen = normalized_key.replace('_', '-')
+                            # value = None
 
-                            # Try different key variations
+                            # # Try different key variations
+                            # for field_key, field_value in dynamic_fields.items():
+                            #     if (field_key == normalized_key or
+                            #         field_key == normalized_key_hyphen or
+                            #         field_key.replace('-', '_') == normalized_key or
+                            #         field_key.replace('_', '-') == normalized_key_hyphen):
+                            #         value = field_value
+                            #         break
+                            normalized_key = normalize_label(label)
                             for field_key, field_value in dynamic_fields.items():
-                                if (field_key == normalized_key or
-                                    field_key == normalized_key_hyphen or
-                                    field_key.replace('-', '_') == normalized_key or
-                                    field_key.replace('_', '-') == normalized_key_hyphen):
+                                if normalize_label(field_key) == normalized_key:
                                     value = field_value
                                     break
 

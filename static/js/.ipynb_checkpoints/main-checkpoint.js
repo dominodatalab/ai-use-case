@@ -14,8 +14,9 @@ const AI_ICON_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(AI_ICON_SVG)
 
 // Hardcoded policy IDs
 const POLICY_IDS = {
+    'AI Use Case Intake': '4a8da911-bb6b-480d-a5a9-9918550c741e',
     'External Model Upload': '42c9adf3-f233-470b-b186-107496d0eb05',
-    'AI Use Case Intake': '4a8da911-bb6b-480d-a5a9-9918550c741e'  // Using same ID for now, replace with actual second policy ID
+    'Internal Model Intake': '5f913214-e0ec-4fae-9f78-930a9bd918b4',
 };
 
 // Global state
@@ -165,12 +166,13 @@ function generateDynamicFields(policy) {
                     if (orig !== null) {
                 const cur = (el.value || '').toString();
                 if (cur !== orig) {
-                    // remove badge if present (look on the closest .form-group)
+                    // remove badge if present (look in input-wrapper first, then form-group)
+                    const wrapper = el.closest('.input-wrapper');
                     const group = el.closest('.form-group');
-                    const badge = group ? group.querySelector('.ai-badge') : null;
+                    const badge = wrapper ? wrapper.querySelector('.ai-badge') : (group ? group.querySelector('.ai-badge') : null);
                     if (badge) {
                         badge.remove();
-                        group.classList.remove('has-ai-badge');
+                        if (group) group.classList.remove('has-ai-badge');
                     }
                     el.removeAttribute('data-ai-original');
                     el.classList.remove('auto-filled');
@@ -220,10 +222,15 @@ function handlePolicyChange(event) {
 function handleFileUpload(event) {
     const files = Array.from(event.target.files)
         .filter(file => {
-            const name = file.webkitRelativePath || file.name;
-            return !name.split('/').some(part => part.startsWith('.'));
+            const name = file.name;
+            return name.toLowerCase().endsWith('.docx');
         });
-    
+
+    if (files.length === 0 && event.target.files.length > 0) {
+        showErrors(['Please upload only .docx files']);
+        return;
+    }
+
     appState.uploadedFiles = files;
     displayUploadedFiles();
 }
@@ -306,7 +313,7 @@ function validateForm() {
     }
     
     if (appState.uploadedFiles.length === 0) {
-        errors.push('Please upload model files');
+        errors.push('Please upload a .docx file');
         document.getElementById('model-upload').classList.add('error');
     } else {
         document.getElementById('model-upload').classList.remove('error');
@@ -351,20 +358,20 @@ function showErrors(errors) {
 // Show loading state
 function showLoading(button) {
     button.disabled = true;
-    button.innerHTML = '<span class="spinner"></span> Registering Model...';
-    
+    button.innerHTML = '<span class="spinner"></span> Submitting...';
+
     // Create progress container under the button
     const progressContainer = document.createElement('div');
     progressContainer.id = 'progress-container';
     progressContainer.className = 'progress-container';
-    
+
     progressContainer.innerHTML = `
         <div class="progress-bar-container">
             <div class="progress-bar" style="width: 0%"></div>
         </div>
         <div class="progress-message">Initializing...</div>
     `;
-    
+
     // Insert after the form actions
     const formActions = document.querySelector('.form-actions');
     formActions.after(progressContainer);
@@ -402,8 +409,8 @@ function updateProgress(data) {
 // Hide loading state
 function hideLoading(button) {
     button.disabled = false;
-    button.innerHTML = 'Register AI Use Case';
-    
+    button.innerHTML = 'Submit Governance Data';
+
     const progressContainer = document.getElementById('progress-container');
     if (progressContainer) {
         setTimeout(() => {
@@ -416,95 +423,41 @@ function hideLoading(button) {
 // Show success message
 function showSuccess(result) {
     const successContainer = document.getElementById('success-message');
-    
+
     if (!result) {
         successContainer.innerHTML = `
             <div class="success-box">
-                <h3>✓ Model Registered Successfully</h3>
-                <p>Your model has been registered with Domino.</p>
+                <h3>✓ Governance Data Submitted Successfully</h3>
+                <p>Your governance data has been submitted.</p>
             </div>
         `;
         successContainer.style.display = 'block';
         return;
     }
-    
+
     const isSuccess = result.status === 'success';
     const statusColor = isSuccess ? '#10b981' : '#ef4444';
     const statusText = result.status || 'unknown';
-    
+
     const linksHtml = result.data ? `
         <div class="model-links">
             <h4>Quick Links:</h4>
             <div class="link-buttons-grid">
-                ${result.data.security_scan_url ? `
-                    <a href="${result.data.security_scan_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-shield-halved"></i>
-                        <span>Security Scan</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
                 ${result.data.bundle_url ? `
                     <a href="${result.data.bundle_url}" target="_blank" rel="noopener noreferrer" class="link-button">
                         <i class="icon fas fa-clipboard-list"></i>
-                        <span>Intake Bundle</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.endpoint_url ? `
-                    <a href="${result.data.endpoint_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-plug"></i>
-                        <span>REST Endpoint</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.model_card_url ? `
-                    <a href="${result.data.model_card_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-id-card"></i>
-                        <span>Model Card</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.model_artifacts_url ? `
-                    <a href="${result.data.model_artifacts_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-cube"></i>
-                        <span>Model Artifacts</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.experiment_run_url ? `
-                    <a href="${result.data.experiment_run_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-play-circle"></i>
-                        <span>Experiment Run</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.experiment_url ? `
-                    <a href="${result.data.experiment_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-flask"></i>
-                        <span>Experiment</span>
+                        <span>Governance Bundle</span>
                         <i class="external-icon fas fa-external-link-alt"></i>
                     </a>
                 ` : ''}
             </div>
         </div>
     ` : '';
-    
+
     const infoHtml = result.data ? `
         <div class="model-info">
-            <h4>Registration Results:</h4>
+            <h4>Submission Results:</h4>
             <div class="info-grid">
-                ${result.data.model_name ? `
-                    <div class="info-item">
-                        <span class="info-label">Model Name:</span>
-                        <span class="info-value">${result.data.model_name}</span>
-                    </div>
-                ` : ''}
-                ${result.data.model_version !== undefined ? `
-                    <div class="info-item">
-                        <span class="info-label">Model Version:</span>
-                        <span class="info-value">${result.data.model_version}</span>
-                    </div>
-                ` : ''}
                 ${result.data.bundle_name ? `
                     <div class="info-item">
                         <span class="info-label">Bundle Name:</span>
@@ -515,18 +468,6 @@ function showSuccess(result) {
                     <div class="info-item">
                         <span class="info-label">Bundle ID:</span>
                         <span class="info-value">${result.data.bundle_id}</span>
-                    </div>
-                ` : ''}
-                ${result.data.experiment_name ? `
-                    <div class="info-item">
-                        <span class="info-label">Experiment Name:</span>
-                        <span class="info-value">${result.data.experiment_name}</span>
-                    </div>
-                ` : ''}
-                ${result.data.run_id ? `
-                    <div class="info-item">
-                        <span class="info-label">Experiment Run ID:</span>
-                        <span class="info-value">${result.data.run_id}</span>
                     </div>
                 ` : ''}
                 ${result.data.policy_name ? `
@@ -556,10 +497,10 @@ function showSuccess(result) {
             </div>
         </div>
     ` : '';
-    
+
     successContainer.innerHTML = `
         <div class="success-box">
-            <h3>✓ Model Registration Complete</h3>
+            <h3>✓ Governance Submission Complete</h3>
             <div class="status-line">
                 <span class="status-label">Status:</span>
                 <span class="status-value" style="color: ${statusColor}; font-weight: bold;">${statusText}</span>
@@ -684,7 +625,7 @@ async function handleAssistGovernance(event) {
     }
 
     if (appState.uploadedFiles.length === 0) {
-        showErrors(['Please upload model files first']);
+        showErrors(['Please upload a .docx file first']);
         return;
     }
 
@@ -692,8 +633,49 @@ async function handleAssistGovernance(event) {
 
     const assistButton = document.getElementById('assist-governance-button');
     assistButton.disabled = true;
-    const originalText = assistButton.innerHTML;
-    assistButton.innerHTML = '<span class="spinner"></span> Assisting...';
+    assistButton.classList.add('btn-ai-loading');
+
+    // Prepare dynamic fields: text inputs/textarea show animated ellipsis; radios are disabled
+    const dynamicContainer = document.getElementById('dynamic-fields');
+    const animFields = dynamicContainer ? Array.from(dynamicContainer.querySelectorAll('input[type="text"], textarea')) : [];
+    const radioInputs = dynamicContainer ? Array.from(dynamicContainer.querySelectorAll('input[type="radio"]')) : [];
+    const ellipsisStates = ['.', '..', '...'];
+    let ellIdx = 0;
+    const savedValues = new Map();
+    const savedRadioDisabled = new Map();
+    // Put text fields into readonly and start animation
+    animFields.forEach(f => {
+        savedValues.set(f, f.value);
+        f.setAttribute('data-ai-orig-value', f.value || '');
+        try { f.readOnly = true; } catch (e) {}
+        f.classList.add('ai-thinking');
+        f.value = ellipsisStates[ellIdx];
+    });
+    // Disable radios, add tooltip on their labels, and mark container for dimming
+    radioInputs.forEach(r => {
+        savedRadioDisabled.set(r, r.disabled);
+        try { r.disabled = true; } catch (e) {}
+        try {
+            const lbl = r.closest('label') || (() => {
+                // try to find a label referencing this input
+                if (r.id) return document.querySelector(`label[for="${r.id}"]`);
+                return null;
+            })();
+            if (lbl) {
+                lbl.setAttribute('data-ai-tooltip', 'Autofill in progress');
+                lbl.setAttribute('title', 'Autofill in progress');
+                lbl.classList.add('ai-tooltip-target');
+            }
+        } catch (e) {}
+    });
+    if (dynamicContainer) dynamicContainer.classList.add('dynamic-ai-disabled');
+
+    const ellipsisInterval = setInterval(() => {
+        ellIdx = (ellIdx + 1) % ellipsisStates.length;
+        animFields.forEach(f => {
+            try { f.value = ellipsisStates[ellIdx]; } catch (e) {}
+        });
+    }, 450);
 
     try {
         const formData = new FormData();
@@ -726,20 +708,97 @@ async function handleAssistGovernance(event) {
         const data = await resp.json();
         // Extract usable suggestions from nested gateway response
         const suggestions = extractSuggestionsFromAssistResponse(data);
+
+        // Stop animation and restore editability before applying suggestions
+        clearInterval(ellipsisInterval);
+        // restore original values (so fields are empty if they were empty before autofill)
+        animFields.forEach(f => {
+            if (savedValues.has(f)) {
+                try { f.value = savedValues.get(f) || ''; } catch (e) {}
+            }
+        });
+        animFields.forEach(f => {
+            f.classList.remove('ai-thinking');
+            try { f.readOnly = false; } catch (e) {}
+        });
+        radioInputs.forEach(r => {
+            try { r.disabled = savedRadioDisabled.has(r) ? savedRadioDisabled.get(r) : false; } catch (e) {}
+            try {
+                const lbl = r.closest('label') || (r.id ? document.querySelector(`label[for="${r.id}"]`) : null);
+                if (lbl) {
+                    lbl.removeAttribute('data-ai-tooltip');
+                    lbl.removeAttribute('title');
+                    lbl.classList.remove('ai-tooltip-target');
+                }
+            } catch (e) {}
+        });
+        if (dynamicContainer) dynamicContainer.classList.remove('dynamic-ai-disabled');
+
         if (suggestions && Object.keys(suggestions).length > 0) {
             populateSuggestedFields(suggestions);
-            const successObj = { status: 'success', data: { message: 'Assistance applied' } };
-            showSuccess(successObj);
+            // Do NOT show registration success here — only show when user actually submits registration
         } else {
+            // restore previous values if assistant returned nothing useful
+            animFields.forEach(f => {
+                if (savedValues.has(f)) f.value = savedValues.get(f) || '';
+            });
             showErrors(['No suggestions returned from assistant']);
         }
 
     } catch (err) {
         console.error('Assist error', err);
+        // stop animation and restore values + radios
+        clearInterval(ellipsisInterval);
+        animFields.forEach(f => {
+            try { f.readOnly = false; } catch (e) {}
+            if (savedValues.has(f)) {
+                try { f.value = savedValues.get(f) || ''; } catch (e) {}
+            }
+            f.classList.remove('ai-thinking');
+        });
+        radioInputs.forEach(r => {
+            try { r.disabled = savedRadioDisabled.has(r) ? savedRadioDisabled.get(r) : false; } catch (e) {}
+            try {
+                const lbl = r.closest('label') || (r.id ? document.querySelector(`label[for="${r.id}"]`) : null);
+                if (lbl) {
+                    lbl.removeAttribute('data-ai-tooltip');
+                    lbl.removeAttribute('title');
+                    lbl.classList.remove('ai-tooltip-target');
+                }
+            } catch (e) {}
+        });
+        if (dynamicContainer) dynamicContainer.classList.remove('dynamic-ai-disabled');
         showErrors([`Assist failed: ${err.message}`]);
     } finally {
         assistButton.disabled = false;
-        assistButton.innerHTML = originalText;
+        assistButton.classList.remove('btn-ai-loading');
+    }
+}
+
+// Helper function to add AI badge to an input field
+function addAiBadgeToField(field, value) {
+    // Wrap field in input-wrapper if not already wrapped
+    let wrapper = field.parentElement;
+    if (!wrapper || !wrapper.classList.contains('input-wrapper')) {
+        wrapper = document.createElement('div');
+        wrapper.className = 'input-wrapper';
+        field.parentNode.insertBefore(wrapper, field);
+        wrapper.appendChild(field);
+    }
+
+    // Add badge if not already present
+    if (!wrapper.querySelector('.ai-badge')) {
+        const badge = document.createElement('span');
+        badge.className = 'ai-badge';
+        badge.setAttribute('data-ai-original', String(value));
+        badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
+        wrapper.appendChild(badge);
+
+        // Mark the form-group for padding
+        const formGroup = wrapper.closest('.form-group');
+        if (formGroup) {
+            formGroup.classList.add('has-ai-badge');
+        }
     }
 }
 
@@ -802,32 +861,12 @@ function populateSuggestedFields(suggestions) {
                         field.setAttribute('data-ai-original', String(value));
                         field.dispatchEvent(new Event('input'));
                         field.classList.add('auto-filled');
-                        // add badge element inside parent .form-group for positioning
-                            try {
-                                const container = field.closest('.form-group') || field.parentElement;
-                                if (container && !container.querySelector('.ai-badge')) {
-                                    const badge = document.createElement('span');
-                                    badge.className = 'ai-badge';
-                                    badge.setAttribute('data-ai-original', String(value));
-                                    badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
-                                    // position badge in the top-right of the form group
-                                    badge.style.position = 'absolute';
-                                    badge.style.top = '16px';
-                                    badge.style.left = '420px';
-                                    badge.style.width = '20px';
-                                    badge.style.height = '20px';
-                                    badge.style.display = 'inline-flex';
-                                    badge.style.alignItems = 'center';
-                                    badge.style.justifyContent = 'center';
-                                    badge.style.pointerEvents = 'none';
-                                    container.style.position = container.style.position || 'relative';
-                                    container.appendChild(badge);
-                                    // mark group so we can add input padding to avoid overlap
-                                    container.classList.add('has-ai-badge');
-                                }
-                            } catch (e) {
-                                // ignore
-                            }
+                        // Add AI badge using helper function
+                        try {
+                            addAiBadgeToField(field, value);
+                        } catch (e) {
+                            // ignore
+                        }
                         setTimeout(() => field.classList.remove('auto-filled'), 2000);
                     }
                 });
@@ -845,27 +884,7 @@ function populateSuggestedFields(suggestions) {
                             field.dispatchEvent(new Event('input'));
                             field.classList.add('auto-filled');
                             try {
-                                const container = field.closest('.form-group') || field.parentElement;
-                                if (container && !container.querySelector('.ai-badge')) {
-                                    const badge = document.createElement('span');
-                                    badge.className = 'ai-badge';
-                                    badge.setAttribute('data-ai-original', String(value));
-                                    badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
-                                    // position badge in the top-right of the form group
-                                    badge.style.position = 'absolute';
-                                    badge.style.top = '6px';
-                                    badge.style.right = '6px';
-                                    badge.style.width = '20px';
-                                    badge.style.height = '20px';
-                                    badge.style.display = 'inline-flex';
-                                    badge.style.alignItems = 'center';
-                                    badge.style.justifyContent = 'center';
-                                    badge.style.pointerEvents = 'none';
-                                    container.style.position = container.style.position || 'relative';
-                                    container.appendChild(badge);
-                                    // mark group so we can add input padding to avoid overlap
-                                    container.classList.add('has-ai-badge');
-                                }
+                                addAiBadgeToField(field, value);
                             } catch (e) {}
                             setTimeout(() => field.classList.remove('auto-filled'), 2000);
                         }
@@ -884,31 +903,24 @@ function populateSuggestedFields(suggestions) {
                             if (String(r.value).toLowerCase() === String(value).toLowerCase()) {
                                 r.checked = true;
                                 r.dispatchEvent(new Event('change'));
-                                // highlight the label containing this radio and add badge
+                                // highlight the label containing this radio and add badge to form group
                                 const parentLabel = r.closest('label') || r.parentElement;
                                 if (parentLabel) {
                                     parentLabel.classList.add('auto-filled');
                                     try {
-                                        const pcontainer = parentLabel.closest('.form-group') || parentLabel.parentElement;
-                                        if (pcontainer && !pcontainer.querySelector('.ai-badge')) {
+                                        // For radio buttons, add badge to the form-group level
+                                        const formGroup = parentLabel.closest('.form-group');
+                                        if (formGroup && !formGroup.querySelector('.ai-badge')) {
                                             const badge = document.createElement('span');
                                             badge.className = 'ai-badge';
-                                            badge.setAttribute('data-ai-original', String(value));
-                                            badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
-                                            // position badge in the top-right of the form group
                                             badge.style.position = 'absolute';
                                             badge.style.top = '6px';
                                             badge.style.right = '6px';
-                                            badge.style.width = '20px';
-                                            badge.style.height = '20px';
-                                            badge.style.display = 'inline-flex';
-                                            badge.style.alignItems = 'center';
-                                            badge.style.justifyContent = 'center';
-                                            badge.style.pointerEvents = 'none';
-                                            pcontainer.style.position = pcontainer.style.position || 'relative';
-                                            pcontainer.appendChild(badge);
-                                            // mark group to apply padding so badge doesn't overlap input text
-                                            pcontainer.classList.add('has-ai-badge');
+                                            badge.setAttribute('data-ai-original', String(value));
+                                            badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
+                                            formGroup.style.position = 'relative';
+                                            formGroup.appendChild(badge);
+                                            formGroup.classList.add('has-ai-badge');
                                         }
                                     } catch (e) {}
                                     setTimeout(() => parentLabel.classList.remove('auto-filled'), 2000);
@@ -1027,10 +1039,10 @@ function initializeForm() {
                         </div>
                         
                         <div class="form-group">
-                            <label for="model-upload">Upload Model Folder <span class="required">*</span></label>
-                            <input type="file" id="model-upload" webkitdirectory directory multiple required style="display: none;">
-                            <button type="button" class="btn btn-upload" onclick="document.getElementById('model-upload').click()">Choose Files</button>
-                            <p class="help-text">Upload a folder containing model.pkl, requirements.txt, metadata.json, and inference.py</p>
+                            <label for="model-upload">Upload .docx File <span class="required">*</span></label>
+                            <input type="file" id="model-upload" accept=".docx" multiple required style="display: none;">
+                            <button type="button" class="btn btn-upload" onclick="document.getElementById('model-upload').click()">Choose .docx File(s)</button>
+                            <p class="help-text">Upload one or more .docx files containing your governance information</p>
                         </div>
                         
                         <div id="uploaded-files-display" class="files-display">
@@ -1041,11 +1053,13 @@ function initializeForm() {
                             <button type="button" class="btn btn-ai" id="assist-governance-button" title="Autofill Fields">
                                 <img src="${AI_ICON_URL}" alt="ai" class="ai-inline-icon" style="width:16px;height:16px;vertical-align:middle;margin-right:6px;">Autofill Fields
                             </button>
-                            <button type="submit" class="btn btn-primary">Register AI Use Case</button>
+                            <button type="submit" class="btn btn-primary">Submit Governance Data</button>
                             <button type="button" class="btn btn-secondary" onclick="resetForm()">Reset</button>
                         </div>
+
+                        <div id="success-message" style="display: none;"></div>
                     </div>
-                    
+
                     <div class="form-column-middle card">
                         <div id="dynamic-fields">
                             <p>Please select a governance policy to see the required fields</p>
@@ -1053,10 +1067,6 @@ function initializeForm() {
                     </div>
                 </div>
             </form>
-            
-            <div class="results-column">
-                <div id="success-message" style="display: none;"></div>
-            </div>
         </div>
     `;
     
