@@ -200,6 +200,12 @@ body {
   color: var(--muted);
 }
 
+.evidence-description {
+  font-size: var(--fs-12);
+  color: var(--muted);
+  margin-bottom: var(--sp-3);
+}
+
 /* ---------- Files Display ---------- */
 .files-display {
   margin: var(--sp-6) 0;
@@ -436,7 +442,8 @@ label.auto-filled {
   font-style: italic;
   color: var(--muted);
   cursor: progress;
-  transition: opacity 0.18s ease, color 0.18s ease, background-color 0.18s ease;
+  transition: opacity 0.18s ease, color 0.18s ease;
+  animation: aiBackgroundPulse 2s ease-in-out infinite;
 }
 
 /* Dim and disable interactive controls inside the dynamic fields container while AI is running */
@@ -475,7 +482,7 @@ label.auto-filled {
 
 /* Pulsing glow animation for loading state */
 .btn-ai-loading {
-  animation: aiPulse 2s ease-in-out infinite;
+  animation: aiPulse 2s ease-in-out infinite, aiBackgroundPulse 2s ease-in-out infinite;
   cursor: wait;
 }
 
@@ -485,6 +492,15 @@ label.auto-filled {
   }
   50% {
     box-shadow: 0 0 20px 4px rgba(245, 158, 11, 0.6);
+  }
+}
+
+@keyframes aiBackgroundPulse {
+  0%, 100% {
+    background: var(--panel);
+  }
+  50% {
+    background: var(--subtle-2);
   }
 }
 
