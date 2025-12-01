@@ -621,8 +621,9 @@ def register_model_handler(request, progress_queues):
                 file_contents[filename] = text_content
                 logger.info(f"Extracted text from {filename}: {len(text_content)} characters")
 
-        # Generate bundle name from timestamp or use a field from dynamic_fields
-        bundle_name = dynamic_fields.get('model_name', f"governance_bundle_{int(time.time())}")
+        # Generate unique bundle name from model_name plus short random suffix
+        base_name = dynamic_fields.get('model_name', 'governance_bundle')
+        bundle_name = f"{base_name}_{uuid.uuid4().hex[:4]}"
 
         send_progress(request_id, 'bundle', 'Creating governance bundle...', progress_queues, progress=50)
         bundle_data = create_bundle_simple(bundle_name, policy_id)
