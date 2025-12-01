@@ -631,8 +631,7 @@ async function handleAssistGovernance(event) {
 
     const assistButton = document.getElementById('assist-governance-button');
     assistButton.disabled = true;
-    const originalText = assistButton.innerHTML;
-    assistButton.innerHTML = '<span class="spinner"></span> Assisting...';
+    assistButton.classList.add('btn-ai-loading');
 
     // Prepare dynamic fields: text inputs/textarea show animated ellipsis; radios are disabled
     const dynamicContainer = document.getElementById('dynamic-fields');
@@ -642,8 +641,6 @@ async function handleAssistGovernance(event) {
     let ellIdx = 0;
     const savedValues = new Map();
     const savedRadioDisabled = new Map();
-    // Initialize assist button text with the first ellipsis state
-    try { assistButton.innerHTML = `<span class="spinner"></span> Assisting${ellipsisStates[ellIdx]}`; } catch (e) {}
     // Put text fields into readonly and start animation
     animFields.forEach(f => {
         savedValues.set(f, f.value);
@@ -676,8 +673,6 @@ async function handleAssistGovernance(event) {
         animFields.forEach(f => {
             try { f.value = ellipsisStates[ellIdx]; } catch (e) {}
         });
-        // Update the assist button text to animate the ellipsis
-        try { assistButton.innerHTML = `<span class="spinner"></span> Assisting${ellipsisStates[ellIdx]}`; } catch (e) {}
     }, 450);
 
     try {
@@ -774,7 +769,7 @@ async function handleAssistGovernance(event) {
         showErrors([`Assist failed: ${err.message}`]);
     } finally {
         assistButton.disabled = false;
-        assistButton.innerHTML = originalText;
+        assistButton.classList.remove('btn-ai-loading');
     }
 }
 
