@@ -604,6 +604,9 @@ def register_model_handler(request, progress_queues):
     request_id = request.form.get("requestId", str(uuid.uuid4()))
 
     try:
+        policy_name = request.form.get("policyName")
+        policy_id = request.form.get("policyId")
+
         # Parse dynamic fields from JSON
         dynamic_fields_json = request.form.get("dynamicFields", "{}")
         dynamic_fields = json.loads(dynamic_fields_json)
