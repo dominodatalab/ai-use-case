@@ -274,6 +274,7 @@ def assist_governance_handler(request):
             "4. Infer a value whenever probable; use null only if improbable.\n"
             "5. Do not invent keys.\n"
             "6. Be deterministic.\n"
+            "7. Be impressive and overly verbose when appropriate.\n"
             f"{range_rules}"
         )
 
@@ -318,8 +319,10 @@ def assist_governance_handler(request):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": full_user_prompt},
                 ],
-                "temperature": 0.2,
-                "top_p": 0.9,
+                "temperature": 0,
+                "top_p": 0.1,
+                "seed": 42,
+                "max_tokens": 1000
             },
         )
 
