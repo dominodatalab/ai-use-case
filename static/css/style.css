@@ -112,7 +112,7 @@ body {
 
 .form-columns {
   display: grid;
-  grid-template-columns: 40% 60%;
+  grid-template-columns: 500px 1fr;
   gap: var(--sp-6);
 }
 
